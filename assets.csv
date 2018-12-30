@@ -1,0 +1,6 @@
+symbol,name,stock_percentage,bond_percentage,investment_date,investment_dollars
+vwinx,Vanguard Wellesley,0.6,0.4,01/06/1998,10000
+vwinx,Vanguard Wellesley,0.6,0.4,01/09/1998,1000
+vwinx,Vanguard Wellesley,0.6,0.4,01/13/1998,1000
+styax,Wells Fargo Core Plus Bond Fund Class A,0,1,04/01/2008,20000
+msft,Microsoft,1,0,03/03/2011,5000

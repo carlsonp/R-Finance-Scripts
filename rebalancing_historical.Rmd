@@ -1,0 +1,179 @@
+---
+title: "Finance Rebalancing and Historical Valuation"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+# see markdown reference for all code chunk options and parameters
+# https://www.rstudio.com/wp-content/uploads/2015/03/rmarkdown-reference.pdf
+knitr::opts_chunk$set(echo = TRUE, footer="https://")
+```
+
+
+Install packages with `install.packages(...)`
+```{r}
+# alphavantage.co API for pulling historical stock information
+# https://www.alphavantage.co/documentation/
+library(alphavantager) # https://github.com/business-science/alphavantager
+library(plotly)
+library(dplyr)
+library(readr)
+library(knitr)
+```
+
+Make sure to enter your API key here:
+```{r}
+# https://www.alphavantage.co/
+# signup for an API key, don't share this with others!
+av_api_key("secret")
+# whether or not to pull new data via the API vs. using the cached .rds file
+USE_CACHED_DATA = T
+```
+
+Edit `assets.csv` and put in your investments.
+```{r}
+print(paste("Working directory", getwd()))
+
+assets = as.data.frame(read_csv("assets.csv", col_names=TRUE)) %>%
+  dplyr::mutate(symbol = as.factor(symbol))
+
+# format column as date type
+assets$investment_date = as.Date(assets$investment_date, "%m/%d/%Y")
+```
+
+```{r}
+# create a nicely formatted table of the dataframe
+knitr::kable(assets)
+```
+
+
+```{r}
+if(!USE_CACHED_DATA) {
+  market = NULL
+  for (i in 1:nrow(assets)) {
+    r = av_get(symbol = as.character(assets$symbol[i]), av_fun = "TIME_SERIES_DAILY_ADJUSTED", outputsize="full")
+    r = as.data.frame(r)
+    # rename columns so they're consistent
+    # names(r) = c("Open", "High", "Low", "Close", "Volume", "Adjusted")
+    
+    # add the ticker symbol as a column of data
+    r$symbol = assets$symbol[i]
+    if (is.null(market)) {
+      market = r
+    } else {
+      market = rbind(market, r) # "union" the dataframes vertically
+    }
+  }
+  rm(r)
+  saveRDS(market, file = "market.rds")
+} else {
+  market = readRDS(file = "market.rds")
+}
+```
+
+
+```{r}
+for (symb in assets$symbol) {
+  p = plot_ly(market %>% filter(symbol == symb), x = ~timestamp, y = ~close, mode = 'lines', type='scatter') %>%
+    layout(title=symb)
+  print(p)
+}
+rm(p)
+rm(symb)
+```
+
+```{r}
+assets_market = dplyr::left_join(market, assets %>% select(investment_date, symbol, investment_dollars, bond_percentage, stock_percentage), by=c("timestamp"="investment_date", "symbol"="symbol")) %>%
+  dplyr::rename(dollar_amount=investment_dollars)
+
+assets_market = assets_market %>% dplyr::mutate(shares_purchased = ifelse(!is.na(dollar_amount), dollar_amount/close, NA))
+
+
+if (sum(!is.na(assets_market$dollar_amount)) != length(assets$investment_dollars)) {
+  print("ERROR: You have entries in your assets file that do not correspond to a timestamp in the market data!")
+}
+
+# perform calculation for each row to find new valuation based on market changes
+# we can't use dplyr::lag() and dplyr::mutate() because we have to commit the changes at each row for subsequent calculations
+# this assumes the data is in descending chronological order (earliest at the end)
+for (row in 2:nrow(assets_market)) {
+  # TODO: account for stocks splitting, this is in dataframe as "split_coefficient"
+  # how do we know if it's 2:1, 3:2, etc.?
+  
+  # make sure the symbols match up (sanity check)
+  if (assets_market$symbol[(row-1)] == assets_market$symbol[row]) {
+    if (!is.na(assets_market$dollar_amount[(row-1)])) {
+      if(!is.na(assets_market$dollar_amount[row])) {
+        assets_market$dollar_amount[row] = assets_market$dollar_amount[row] + (assets_market$shares_purchased[(row-1)] * (assets_market$close[row]))
+        assets_market$shares_purchased[row] = assets_market$shares_purchased[(row-1)] + assets_market$shares_purchased[row]
+      } else {
+        assets_market$dollar_amount[row] = assets_market$shares_purchased[(row-1)] * assets_market$close[row]
+        assets_market$shares_purchased[row] = assets_market$shares_purchased[(row-1)]
+      }
+      
+      if (is.na(assets_market$stock_percentage[row])) {
+        assets_market$stock_percentage[row] = assets_market$stock_percentage[(row-1)]
+      }
+      if (is.na(assets_market$bond_percentage[row])) {
+        assets_market$bond_percentage[row] = assets_market$bond_percentage[(row-1)]
+      }
+    }
+    if (assets_market$dividend_amount[row] != 0.0) {
+      assets_market$shares_purchased[row] = assets_market$shares_purchased[(row-1)] * ((assets_market$dividend_amount[row] / assets_market$close[(row-1)]) + 1)
+    }
+  }
+}
+
+# fill in NA cells
+assets_market$dollar_amount[is.na(assets_market$dollar_amount)] = 0
+assets_market$bond_percentage[is.na(assets_market$bond_percentage)] = 0
+assets_market$stock_percentage[is.na(assets_market$stock_percentage)] = 0
+
+write_csv(assets_market, path="assets_market.csv", col_names=T)
+```
+
+```{r}
+# calculate aggregate across all investments for each day
+valuation_df = assets_market %>% group_by(timestamp) %>% summarize(sum_dollar = sum(dollar_amount))
+
+valuation_df = dplyr::left_join(valuation_df,
+                                assets_market %>% group_by(timestamp) %>% summarize(bond_valuation_dollars = sum(dollar_amount*bond_percentage)), by="timestamp")
+
+valuation_df = dplyr::left_join(valuation_df,
+                                assets_market %>% group_by(timestamp) %>% summarize(stock_valuation_dollars = sum(dollar_amount*stock_percentage)), by="timestamp")
+
+valuation_df = as.data.frame(valuation_df)
+
+# calculate the fluctuating percentage of asset allocation (stocks or bonds)
+valuation_df = valuation_df %>% dplyr::mutate(bond_percentage = (bond_valuation_dollars/sum_dollar))
+valuation_df = valuation_df %>% dplyr::mutate(stock_percentage = (stock_valuation_dollars/sum_dollar))
+
+# strip off the most recent day so we don't show a wild fluctuation in the graphs
+valuation_df = head(valuation_df, -1)
+
+write_csv(valuation_df, path="valuation_df.csv", col_names=T)
+```
+
+
+```{r}
+plot_ly(valuation_df, x = ~timestamp, y = ~bond_percentage * 100, mode = 'lines', type='scatter') %>%
+    layout(title="Overall Bond Percentage (%)", xaxis = list(title="Date"), yaxis = list(title="Bond Percentage"))
+```
+
+```{r}
+plot_ly(valuation_df, x = ~timestamp, y = ~stock_percentage * 100, mode = 'lines', type='scatter') %>%
+    layout(title="Overall Stock Percentage (%)", xaxis = list(title="Date"), yaxis = list(title="Stock Percentage"))
+```
+
+
+```{r}
+plot_ly(valuation_df, x = ~timestamp, y = ~sum_dollar, mode = 'lines', type='scatter') %>%
+    layout(title="Total Portfolio Value ($)", xaxis = list(title="Date"), yaxis = list(title="Valuation ($)"))
+```
+
+```{r}
+plot_ly(valuation_df, x = ~timestamp, y = ~bond_valuation_dollars, name='Bond Valuation ($)', mode = 'lines', type='scatter') %>%
+    add_trace(y = ~stock_valuation_dollars, name='Stock Valuation ($)') %>%
+    layout(title="Overall Portfolio Value ($)", xaxis = list(title="Date"), yaxis = list(title="Valuation ($)"))
+```
