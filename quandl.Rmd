@@ -1,0 +1,25 @@
+---
+title: "quandl"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE}
+library(Quandl) # https://cran.r-project.org/web/packages/Quandl/index.html
+library(plotly)
+library(dplyr)
+```
+
+```{r, echo=FALSE}
+# https://docs.quandl.com/
+Quandl.api_key("secret")
+```
+
+```{r}
+data <- Quandl('WIKI/AAPL', collapse = "daily", type = "raw", meta=T, force_irregular=T)
+```
+
+
