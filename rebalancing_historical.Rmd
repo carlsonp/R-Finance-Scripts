@@ -31,7 +31,7 @@ av_api_key("secret")
 USE_CACHED_DATA = T
 ```
 
-Edit `assets.csv` and put in your investments.
+Edit `assets.csv` and put in your investments.  Also make sure your working directory is set via `setwd()`.
 ```{r}
 print(paste("Working directory", getwd()))
 
@@ -74,7 +74,7 @@ if(!USE_CACHED_DATA) {
 
 
 ```{r}
-for (symb in assets$symbol) {
+for (symb in unique(assets$symbol)) {
   p = plot_ly(market %>% filter(symbol == symb), x = ~timestamp, y = ~close, mode = 'lines', type='scatter') %>%
     layout(title=symb)
   print(p)
@@ -83,6 +83,7 @@ rm(p)
 rm(symb)
 ```
 
+These calculations around valuation and shares take into account dividends (probably both regular dividends and capital gains?).
 ```{r}
 assets_market = dplyr::left_join(market, assets %>% select(investment_date, symbol, investment_dollars, bond_percentage, stock_percentage), by=c("timestamp"="investment_date", "symbol"="symbol")) %>%
   dplyr::rename(dollar_amount=investment_dollars)
