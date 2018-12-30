@@ -1,0 +1,77 @@
+---
+title: "quantmod"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE}
+library(quantmod)
+library(dplyr)
+library(xts)
+library(plotly)
+```
+
+```{r}
+assets = data.frame(symbol=c("vwinx", "styax"),
+                    name=c("Vanguard Wellesley", "Wells Fargo Core Plus Bond Fund Class A"),
+                    stock_percentage=c(0.8, 0.0),
+                    bond_percentage=c(0.2, 1.0),
+                    initial_investment=c(10000, 20000),
+                    initial_investment_date=as.Date(c("01/05/2007", "03/05/2012"), "%m/%d/%Y"))
+
+market = NULL
+for (i in 1:nrow(assets)) {
+  # env=NULL returns the data as xts instead of making a variable with the ticker name
+  r = getSymbols(as.character(assets$symbol[i]), env=NULL, src="yahoo")
+  # eval(parse()) turns a string into a variable representation
+  daily_return = dailyReturn(eval(parse(text=paste0("r$",toupper(as.character(assets$symbol[i])),".Close"))))
+  r = as.data.frame(r)
+  # rename columns so they're consistent
+  names(r) = c("Open", "High", "Low", "Close", "Volume", "Adjusted")
+  
+  # add the ticker symbol as a column of data
+  r$symbol = assets$symbol[i]
+  # add the daily return
+  r$dailyreturn = as.data.frame(daily_return)$daily.return
+  # pull the date out into own column
+  r <- cbind(date = rownames(r), r)
+  r$date = as.Date(r$date, format = "%Y-%m-%d") # cast to a date format
+  if (is.null(market)) {
+    market = r
+  } else {
+    market = rbind(market, r) # "union" the dataframes vertically
+  }
+}
+```
+
+
+```{r}
+temp = market
+temp$year_month = as.Date(temp$date, format = "%Y-%m-01")
+grouped_monthly = temp %>% group_by(year_month) %>% summarize(month_return = sum(dailyreturn))
+plot_ly(grouped_monthly, x = ~year_month, y = ~month_return, mode = 'lines')
+```
+
+```{r}
+for (symb in assets$symbol) {
+  p = plot_ly(market %>% filter(symbol == symb), x = ~date, y = ~Close, mode = 'lines') %>%
+    layout(title=symb)
+  print(p)
+}
+```
+
+```{r}
+assets_market = dplyr::left_join(market, assets %>% select(initial_investment_date, symbol, initial_investment), by=c("date"="initial_investment_date", "symbol"="symbol")) %>%
+  dplyr::rename(amount=initial_investment)
+# perform calculation for each row to find new valuation based on market changes
+# we can't use dplyr::lag() and dplyr::mutate() because we have to commit the changes at each row for subsequent calculations
+for (row in 2:nrow(assets_market)) {
+  if (!is.na(assets_market$amount[row-1])) {
+    assets_market$amount[row] = assets_market$amount[row-1] * (assets_market$dailyreturn[row]+1)
+  }
+}
+```
+
