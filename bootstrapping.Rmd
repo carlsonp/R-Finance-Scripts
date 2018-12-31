@@ -1,0 +1,63 @@
+---
+title: "Bootstrapping - Future Forecasting"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+source("libraries.R")
+source("config.R")
+source("common.R")
+
+# whether or not to pull new data via the API vs. using the cached .rds file
+USE_CACHED_DATA = T
+```
+
+Edit this to adjust your hypothetical case.  This will take the symbols and starting investment amounts and project
+going forward using the past data to bootstrap.
+```{r}
+starting_df = data.frame(symbols = c("vwinx", "msft"),
+                            investment = c(10000, 2000))
+num_days_run = 365
+```
+
+
+```{r}
+market = downloadMarketData(USE_CACHED_DATA, unique(starting_df$symbols))
+```
+
+```{r}
+# create a new column of the "true" close taking into account dividend payouts
+market$trueclose = market$adjusted_close + market$dividend_amount
+# calculate the returns by taking the difference of the close values between two days
+# dplyr::lag() provides the previous row value
+market = market %>% mutate(return = (trueclose - dplyr::lag(trueclose)))
+# remove the first row since we don't have a return
+market = tail(market, n=-1)
+```
+
+```{r}
+# https://www.youtube.com/watch?v=fSafiRZyw8Q&list=PLjWSgPmViK-Nfy3HLfTwogVV_HcgO38T9&index=6
+# Bootstrapping video with example
+
+futures = NULL
+# this assumes we keep these in chronological order
+for (symb in unique(market$symbol)) {
+  filtered_market_df = market %>% filter(symbol == symb)
+  startpoint = filtered_market_df[nrow(filtered_market_df),]
+  print(startpoint)
+  
+  # TODO: finish/fix this portion
+  return_sample = (cumprod(sample(filtered_market_df$return, num_days_run, replace=T) + 1) * as.numeric(startpoint$close))
+  
+  if (is.null(futures)) {
+    futures = filtered_market_df
+  } else {
+    futures = rbind(futures, filtered_market_df) # "union" the dataframes vertically
+  }
+}
+```
+

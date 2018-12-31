@@ -7,26 +7,15 @@ output:
 ```{r setup, include=FALSE}
 # see markdown reference for all code chunk options and parameters
 # https://www.rstudio.com/wp-content/uploads/2015/03/rmarkdown-reference.pdf
-knitr::opts_chunk$set(echo = TRUE, footer="https://")
+knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
-Install packages with `install.packages(...)`
 ```{r}
-# alphavantage.co API for pulling historical stock information
-# https://www.alphavantage.co/documentation/
-library(alphavantager) # https://github.com/business-science/alphavantager
-library(plotly)
-library(dplyr)
-library(readr)
-library(knitr)
-```
+source("libraries.R")
+source("config.R")
+source("common.R")
 
-Make sure to enter your API key here:
-```{r}
-# https://www.alphavantage.co/
-# signup for an API key, don't share this with others!
-av_api_key("secret")
 # whether or not to pull new data via the API vs. using the cached .rds file
 USE_CACHED_DATA = T
 ```
@@ -49,27 +38,7 @@ knitr::kable(assets)
 
 
 ```{r}
-if(!USE_CACHED_DATA) {
-  market = NULL
-  for (i in 1:nrow(assets)) {
-    r = av_get(symbol = as.character(assets$symbol[i]), av_fun = "TIME_SERIES_DAILY_ADJUSTED", outputsize="full")
-    r = as.data.frame(r)
-    # rename columns so they're consistent
-    # names(r) = c("Open", "High", "Low", "Close", "Volume", "Adjusted")
-    
-    # add the ticker symbol as a column of data
-    r$symbol = assets$symbol[i]
-    if (is.null(market)) {
-      market = r
-    } else {
-      market = rbind(market, r) # "union" the dataframes vertically
-    }
-  }
-  rm(r)
-  saveRDS(market, file = "market.rds")
-} else {
-  market = readRDS(file = "market.rds")
-}
+market = downloadMarketData(USE_CACHED_DATA, unique(assets$symbols))
 ```
 
 

@@ -5,5 +5,6 @@ Various R markdown and other scripts for finance related calculations and graphi
 
 ### Setup
 
-* Install packages via `install.packages()`
-* Run R Markdown (.rmd) via RStudio Desktop
+* Install packages via `install.packages()` based on the `libraries.R` file.
+* Edit settings in the `config.R` file
+* Run R Markdown (.Rmd) files via RStudio Desktop
